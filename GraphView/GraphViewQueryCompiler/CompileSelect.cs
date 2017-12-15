@@ -1,5 +1,4 @@
-﻿#define USE_SERIALIZE
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Data;
@@ -603,18 +602,10 @@ namespace GraphView
                 priorContext = statementContext;
             }
 
-#if USE_SERIALIZE
             SerializationData.SetSideEffectStates(priorContext.SideEffectFunctions);
             SerializationData.SetContainers(priorContext.Containers);
 
             GraphViewSerializer.Serialize(command, op);
-            GraphViewCommand newCommand;
-            GraphViewExecutionOperator newOp = GraphViewSerializer.Deserialize(out newCommand);
-            // because the command is used in test-case later, we can only set fields and properties of the command.
-            command.SetCommand(newCommand);
-
-            return newOp;
-#endif
 
             // Returns the last execution operator
             // To consider: prior execution operators that have no links to the last operator will not be executed.

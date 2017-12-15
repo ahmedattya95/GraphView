@@ -38,7 +38,9 @@ namespace GraphView
         public VertexObjectCache VertexCache { get; private set; }
 
         public bool InLazyMode { get; set; } = false;
-        
+
+        public bool OnlyCompile { get; set; } = false;
+
         public string CommandText { get; set; }
 
         public OutputFormat OutputFormat { get; set; }
@@ -108,6 +110,15 @@ namespace GraphView
                 results.Add(result);
             }
             return results;
+        }
+
+        public void CompileQuery()
+        {
+            this.OnlyCompile = true;
+            foreach (var result in Execute())
+            {
+                return;
+            }
         }
 
         public void Dispose()

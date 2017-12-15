@@ -10,57 +10,82 @@
     using Microsoft.Azure.Batch.Common;
     using Microsoft.WindowsAzure.Storage;
     using Microsoft.WindowsAzure.Storage.Blob;
+    using GraphView;
 
     public class StartAzureBatch
     {
+        private readonly string queryString;
+
         // Batch account credentials
-        private const string BatchAccountName = "";
-        private const string BatchAccountKey = "";
-        private const string BatchAccountUrl = "";
+        private readonly string batchAccountName;
+        private readonly string batchAccountKey;
+        private readonly string batchAccountUrl;
 
         // Storage account credentials
-        private const string StorageConnectionString = "";
+        private readonly string storageConnectionString;
 
-        private const string PoolId = "GraphViewPool";
-        private const string JobId  = "GraphViewJob";
-        private const string TaskId = "GraphViewTask";
-        // number of nodes. number of tasks.
-        private const int Parallelism = 2;
+        // CosmosDB account credentials
+        private readonly string docDBEndPoint;
+        private readonly string docDBKey;
+        private readonly string docDBDatabaseId;
+        private readonly string docDBCollectionId;
+        private readonly bool useReverseEdge;
+        private readonly string partitionByKey;
+        private readonly int spilledEdgeThresholdViagraphAPI;
 
-        private const bool UseAppPackage = false;
-        // use container to upload program.
-        // program and dependency path. for example: "C:\...\GraphView\GraphViewProgram\bin\Debug\"
-        private const string DenpendencyPath = "";
-        private const string ExeName = "Program.exe";
-        // use application package
-        private const string ApplicationPackageName = "GraphView";
-        private const string ApplicationPackageId = "1.0";
-        private const string ApplicationPackageZipName = "Debug";
-        private const string ApplicationPackageExeName = "Program.exe";
+        private readonly string poolId;
+        private readonly string jobId;
 
-        // local path that stores downloaded output. for example: "C:\Users\...\Desktop"
-        private const string OutputPath = "";
+        // number of tasks.
+        private readonly int parallelism;
+
+        // use container to upload program
+        private readonly string denpendencyPath;
+        private readonly string exeName;
+
+        // local path that stores downloaded output
+        private readonly string outputPath;
+
+        private readonly string partitionPlanFileName;
+
+        public StartAzureBatch()
+        {
+            queryString = "g.V()";
+
+            batchAccountName = "";
+            batchAccountKey = "";
+            batchAccountUrl = "";
+
+            storageConnectionString = "";
+
+            docDBEndPoint = "";
+            docDBKey = "";
+            docDBDatabaseId = "GroupMatch";
+            docDBCollectionId = "Modern";
+            useReverseEdge = true;
+            partitionByKey = "name";
+            spilledEdgeThresholdViagraphAPI = 1;
+
+            poolId = "GraphViewPool";
+            jobId = "GraphViewJob";
+
+            parallelism = 3;
+
+            denpendencyPath = "blablabla\\GraphView\\GraphViewProgram\\bin\\Debug\\";
+            exeName = "Program.exe";
+
+            outputPath = "C:\\Users\\user-name\\Desktop";
+
+            partitionPlanFileName = $"partitionPlan{this.jobId}.xml";
+        }
 
         public static void Main(string[] args)
         {
-            if (String.IsNullOrEmpty(BatchAccountName) || String.IsNullOrEmpty(BatchAccountKey) || String.IsNullOrEmpty(BatchAccountUrl) ||
-                String.IsNullOrEmpty(StorageConnectionString))
-            {
-                throw new InvalidOperationException("One ore more account credential strings have not been populated. Please ensure that your Batch and Storage account credentials have been specified.");
-            }
-
             try
             {
                 // Call the asynchronous version of the Main() method. This is done so that we can await various
                 // calls to async methods within the "Main" method of this console application.
-                if (UseAppPackage)
-                {
-                    MainAsyncUseAppPackage().Wait();
-                }
-                else
-                {
-                    MainAsyncUseContainer().Wait();
-                }
+                MainAsyncUseContainer().Wait();
             }
             catch (AggregateException ae)
             {
@@ -78,137 +103,87 @@
             }
         }
 
-        private static async Task DeletePoolAsync()
-        {
-            BatchSharedKeyCredentials cred = new BatchSharedKeyCredentials(BatchAccountUrl, BatchAccountName, BatchAccountKey);
-            using (BatchClient batchClient = BatchClient.Open(cred))
-            {
-                await batchClient.PoolOperations.DeletePoolAsync(PoolId);
-            }
-        }
-
-        private static void DeletePool()
-        {
-            BatchSharedKeyCredentials cred = new BatchSharedKeyCredentials(BatchAccountUrl, BatchAccountName, BatchAccountKey);
-            using (BatchClient batchClient = BatchClient.Open(cred))
-            {
-                batchClient.PoolOperations.DeletePool(PoolId);
-            }
-        }
-
-        private static async Task DeleteJobAsync()
-        {
-            BatchSharedKeyCredentials cred = new BatchSharedKeyCredentials(BatchAccountUrl, BatchAccountName, BatchAccountKey);
-            using (BatchClient batchClient = BatchClient.Open(cred))
-            {
-                await batchClient.JobOperations.DeleteJobAsync(JobId);
-            }
-        }
-
-        private static void DeleteJob()
-        {
-            BatchSharedKeyCredentials cred = new BatchSharedKeyCredentials(BatchAccountUrl, BatchAccountName, BatchAccountKey);
-            using (BatchClient batchClient = BatchClient.Open(cred))
-            {
-                batchClient.JobOperations.DeleteJob(JobId);
-            }
-        }
-
-        private static async Task DeletePoolAndJobAsync()
-        {
-            BatchSharedKeyCredentials cred = new BatchSharedKeyCredentials(BatchAccountUrl, BatchAccountName, BatchAccountKey);
-            using (BatchClient batchClient = BatchClient.Open(cred))
-            {
-                await batchClient.JobOperations.DeleteJobAsync(JobId);
-                await batchClient.PoolOperations.DeletePoolAsync(PoolId);
-            }
-        }
-
-        private static void DeletePoolAndJob()
-        {
-            BatchSharedKeyCredentials cred = new BatchSharedKeyCredentials(BatchAccountUrl, BatchAccountName, BatchAccountKey);
-            using (BatchClient batchClient = BatchClient.Open(cred))
-            {
-                batchClient.JobOperations.DeleteJob(JobId);
-                batchClient.PoolOperations.DeletePool(PoolId);
-            }
-        }
-
-        private static void ResizePool(int lowPriority, int dedicated)
-        {
-            Debug.Assert(lowPriority <= 3 && dedicated <= 3);
-            BatchSharedKeyCredentials cred = new BatchSharedKeyCredentials(BatchAccountUrl, BatchAccountName, BatchAccountKey);
-            using (BatchClient batchClient = BatchClient.Open(cred))
-            {
-                batchClient.PoolOperations.ResizePool(poolId: PoolId,
-                    targetLowPriorityComputeNodes: lowPriority,
-                    targetDedicatedComputeNodes: dedicated);
-            }
-        }
-
         private static async Task MainAsyncUseContainer()
         {
-            Console.WriteLine("Sample start: {0}", DateTime.Now);
-            Console.WriteLine();
+            StartAzureBatch client = new StartAzureBatch();
+
+            Console.WriteLine("Query {0} start: {1}\n", client.queryString, DateTime.Now);
             Stopwatch timer = new Stopwatch();
             timer.Start();
 
             // Retrieve the storage account
-            CloudStorageAccount storageAccount = CloudStorageAccount.Parse(StorageConnectionString);
+            CloudStorageAccount storageAccount = CloudStorageAccount.Parse(client.storageConnectionString);
 
             // Create the blob client, for use in obtaining references to blob storage containers
             CloudBlobClient blobClient = storageAccount.CreateCloudBlobClient();
             const string outputContainerName = "output";
             const string appContainerName = "application";
+            const string serializationContainerName = "serialization";
             await CreateContainerIfNotExistAsync(blobClient, appContainerName);
             await CreateContainerIfNotExistAsync(blobClient, outputContainerName);
+            await CreateContainerIfNotExistAsync(blobClient, serializationContainerName);
 
             // Paths to the executable and its dependencies that will be executed by the tasks
             List<string> applicationFilePaths = new List<string>
             {
-                // The DotNetTutorial project includes a project reference to TaskApplication, allowing us to
-                // determine the path of the task application binary dynamically
-                DenpendencyPath + ExeName, // Program.exe
-                DenpendencyPath + "Microsoft.WindowsAzure.Storage.dll",
-                DenpendencyPath + "DocumentDB.Spatial.Sql.dll",
-                DenpendencyPath + "GraphView.dll",
-                DenpendencyPath + "JsonServer.dll",
-                DenpendencyPath + "Microsoft.Azure.Documents.Client.dll",
-                DenpendencyPath + "Microsoft.Azure.Documents.ServiceInterop.dll",
-                DenpendencyPath + "Microsoft.SqlServer.TransactSql.ScriptDom.dll", // 120
-                DenpendencyPath + "Newtonsoft.Json.dll",
-                DenpendencyPath + ExeName + ".config", // "Program.exe.config"
+                client.denpendencyPath + client.exeName, // Program.exe
+                client.denpendencyPath + "Microsoft.WindowsAzure.Storage.dll",
+                client.denpendencyPath + "DocumentDB.Spatial.Sql.dll",
+                client.denpendencyPath + "GraphView.dll",
+                client.denpendencyPath + "JsonServer.dll",
+                client.denpendencyPath + "Microsoft.Azure.Documents.Client.dll",
+                client.denpendencyPath + "Microsoft.Azure.Documents.ServiceInterop.dll",
+                client.denpendencyPath + "Microsoft.SqlServer.TransactSql.ScriptDom.dll", // 120
+                client.denpendencyPath + "Newtonsoft.Json.dll",
+                client.denpendencyPath + client.exeName + ".config", // "Program.exe.config"
             };
 
-            // Upload the application and its dependencies to Azure Storage. This is the application that will
-            // process the data files, and will be executed by each of the tasks on the compute nodes.
-            List<ResourceFile> applicationFiles = await UploadFilesToContainerAsync(blobClient, appContainerName, applicationFilePaths);
+            Console.WriteLine("start compile query");
+            // compile query, store results in XML files
+            client.CompileQuery();
+            Console.WriteLine("compile query finished");
+
+            client.MakePartitionPlan();
+
+            List<string> serializationDataPath = new List<string>
+            {
+                GraphViewSerializer.CommandFile,
+                GraphViewSerializer.ContainerFile,
+                GraphViewSerializer.OperatorsFile,
+                GraphViewSerializer.SideEffectFile,
+                //client.partitionPlanFileName
+            };
+
+            // Upload the application and its dependencies to Azure Storage.
+            List<ResourceFile> resourceFiles = await UploadFilesToContainerAsync(blobClient, appContainerName, applicationFilePaths);
+            // Upload the serialization results (XML files) and its partition config to Azure Storage.
+            resourceFiles.AddRange(await UploadFilesToContainerAsync(blobClient, serializationContainerName, serializationDataPath));
 
             // Obtain a shared access signature that provides write access to the output container to which
             // the tasks will upload their output.
             string outputContainerSasUrl = GetContainerSasUrl(blobClient, outputContainerName, SharedAccessBlobPermissions.Write);
 
             // Create a BatchClient. We'll now be interacting with the Batch service in addition to Storage
-            BatchSharedKeyCredentials cred = new BatchSharedKeyCredentials(BatchAccountUrl, BatchAccountName, BatchAccountKey);
+            BatchSharedKeyCredentials cred = new BatchSharedKeyCredentials(client.batchAccountUrl, client.batchAccountName, client.batchAccountKey);
             using (BatchClient batchClient = BatchClient.Open(cred))
             {
                 // Create the pool that will contain the compute nodes that will execute the tasks.
                 // The ResourceFile collection that we pass in is used for configuring the pool's StartTask
                 // which is executed each time a node first joins the pool (or is rebooted or reimaged).
-                await CreatePoolIfNotExistAsync(batchClient, PoolId, applicationFiles);
+                await client.CreatePoolIfNotExistAsync(batchClient, resourceFiles);
 
                 // Create the job that will run the tasks.
-                await CreateJobAsync(batchClient, JobId, PoolId);
+                await client.CreateJobAsync(batchClient);
 
                 // Add the tasks to the job. We need to supply a container shared access signature for the
                 // tasks so that they can upload their output to Azure Storage.
-                await AddTasksAsyncUseContainer(batchClient, JobId, applicationFiles, outputContainerSasUrl);
+                await client.AddTasksAsync(batchClient, resourceFiles, outputContainerSasUrl);
 
                 // Monitor task success/failure, specifying a maximum amount of time to wait for the tasks to complete
-                await MonitorTasks(batchClient, JobId, TimeSpan.FromMinutes(15));
+                await MonitorTasks(batchClient, client.jobId, TimeSpan.FromMinutes(15));
 
                 // Download the task output files from the output Storage container to a local directory
-                await DownloadBlobsFromContainerAsync(blobClient, outputContainerName, OutputPath);
+                await DownloadBlobsFromContainerAsync(blobClient, outputContainerName, client.outputPath);
 
                 // Clean up Storage resources
                 await DeleteContainerAsync(blobClient, outputContainerName);
@@ -219,7 +194,7 @@
                 Console.WriteLine("Sample end: {0}", DateTime.Now);
                 Console.WriteLine("Elapsed time: {0}", timer.Elapsed);
 
-                PrintTaskOutput(batchClient);
+                client.PrintTaskOutput(batchClient);
 
                 // Clean up Batch resources (if the user so chooses)
                 Console.WriteLine();
@@ -227,89 +202,40 @@
                 string response = Console.ReadLine().ToLower();
                 if (response != "n" && response != "no")
                 {
-                    await batchClient.JobOperations.DeleteJobAsync(JobId);
+                    await batchClient.JobOperations.DeleteJobAsync(client.jobId);
                 }
             }
         }
 
-        private static async Task MainAsyncUseAppPackage()
+        private void CompileQuery()
         {
-            Console.WriteLine("Sample start: {0}", DateTime.Now);
-            Console.WriteLine();
-            Stopwatch timer = new Stopwatch();
-            timer.Start();
-
-            // Retrieve the storage account
-            CloudStorageAccount storageAccount = CloudStorageAccount.Parse(StorageConnectionString);
-
-            // Create the blob client, for use in obtaining references to blob storage containers
-            CloudBlobClient blobClient = storageAccount.CreateCloudBlobClient();
-            const string outputContainerName = "output";
-            await CreateContainerIfNotExistAsync(blobClient, outputContainerName);
-
-            // Obtain a shared access signature that provides write access to the output container to which
-            // the tasks will upload their output.
-            string outputContainerSasUrl = GetContainerSasUrl(blobClient, outputContainerName, SharedAccessBlobPermissions.Write);
-
-            // Create a BatchClient. We'll now be interacting with the Batch service in addition to Storage
-            BatchSharedKeyCredentials cred = new BatchSharedKeyCredentials(BatchAccountUrl, BatchAccountName, BatchAccountKey);
-            using (BatchClient batchClient = BatchClient.Open(cred))
-            {
-                // Create the pool that will contain the compute nodes that will execute the tasks.
-                // The ResourceFile collection that we pass in is used for configuring the pool's StartTask
-                // which is executed each time a node first joins the pool (or is rebooted or reimaged).
-                await CreatePoolIfNotExistAsync(batchClient, PoolId, ApplicationPackageName, ApplicationPackageId);
-
-                // Create the job that will run the tasks.
-                await CreateJobAsync(batchClient, JobId, PoolId);
-
-                // Add the tasks to the job. We need to supply a container shared access signature for the
-                // tasks so that they can upload their output to Azure Storage.
-                await AddTasksAsyncUseAppPackage(batchClient, JobId, outputContainerSasUrl);
-
-                // Monitor task success/failure, specifying a maximum amount of time to wait for the tasks to complete
-                await MonitorTasks(batchClient, JobId, TimeSpan.FromMinutes(30));
-
-                // Download the task output files from the output Storage container to a local directory
-                await DownloadBlobsFromContainerAsync(blobClient, outputContainerName, OutputPath);
-
-                // Clean up Storage resources
-                await DeleteContainerAsync(blobClient, outputContainerName);
-
-                // Print out some timing info
-                timer.Stop();
-                Console.WriteLine();
-                Console.WriteLine("Sample end: {0}", DateTime.Now);
-                Console.WriteLine("Elapsed time: {0}", timer.Elapsed);
-
-                PrintTaskOutput(batchClient);
-
-                // Clean up Batch resources (if the user so chooses)
-                Console.WriteLine();
-                Console.Write("Delete job? [yes] no: ");
-                string response = Console.ReadLine().ToLower();
-                if (response != "n" && response != "no")
-                {
-                    await batchClient.JobOperations.DeleteJobAsync(JobId);
-                }
-            }
+            GraphViewConnection connection = new GraphViewConnection(
+                this.docDBEndPoint, this.docDBKey, this.docDBDatabaseId, this.docDBCollectionId,
+                GraphType.GraphAPIOnly, this.useReverseEdge, this.spilledEdgeThresholdViagraphAPI, this.partitionByKey);
+            GraphViewCommand command = new GraphViewCommand(connection);
+            command.CommandText = this.queryString;
+            command.CompileQuery();
         }
 
-        private static void PrintTaskOutput(BatchClient batchClient)
+        private void MakePartitionPlan()
         {
-            for (int i = 0; i < Parallelism; i++)
+            
+        }
+
+        private void PrintTaskOutput(BatchClient batchClient)
+        {
+            for (int i = 0; i < this.parallelism; i++)
             {
-                CloudTask task = batchClient.JobOperations.GetTask(JobId, TaskId + i);
+                CloudTask task = batchClient.JobOperations.GetTask(this.jobId, i.ToString());
                 string stdOut = task.GetNodeFile(Constants.StandardOutFileName).ReadAsString();
                 string stdErr = task.GetNodeFile(Constants.StandardErrorFileName).ReadAsString();
-                Console.WriteLine("---- stdout.txt ----" + TaskId + i);
+                Console.WriteLine("---- stdout.txt ----taskId: " + i);
                 Console.WriteLine(stdOut);
-                Console.WriteLine("---- stderr.txt ----" + TaskId + i);
+                Console.WriteLine("---- stderr.txt ----taskId: " + i);
                 Console.WriteLine(stdErr);
                 Console.WriteLine("------------------------------------");
             }
         }
-
 
         /// <summary>
         /// Creates a container with the specified name in Blob storage, unless a container with that name already exists.
@@ -412,256 +338,6 @@
         }
 
         /// <summary>
-        /// Creates a <see cref="CloudPool"/> with the specified id and configures its StartTask with the
-        /// specified <see cref="ResourceFile"/> collection.
-        /// </summary>
-        /// <param name="batchClient">A <see cref="BatchClient"/>.</param>
-        /// <param name="poolId">The id of the <see cref="CloudPool"/> to create.</param>
-        /// <param name="resourceFiles">A collection of <see cref="ResourceFile"/> objects representing blobs within
-        /// a Storage account container. The StartTask will download these files from Storage prior to execution.</param>
-        /// <returns>A <see cref="System.Threading.Tasks.Task"/> object that represents the asynchronous operation.</returns>
-        private static async Task CreatePoolIfNotExistAsync(BatchClient batchClient, string poolId, string packageName, string packageId)
-        {
-            CloudPool pool = null;
-            try
-            {
-                Console.WriteLine("Creating pool [{0}]...", poolId);
-
-                // Create the unbound pool. Until we call CloudPool.Commit() or CommitAsync(), no pool is actually created in the
-                // Batch service. This CloudPool instance is therefore considered "unbound," and we can modify its properties.
-                Debug.Assert(Parallelism <= 3);
-                pool = batchClient.PoolOperations.CreatePool(
-                    poolId: poolId,
-                    targetLowPriorityComputeNodes: 0,
-                    targetDedicatedComputeNodes: Parallelism,                                             
-                    virtualMachineSize: "small",                                                
-                    cloudServiceConfiguration: new CloudServiceConfiguration(osFamily: "4"));   // Windows Server 2012 R2
-
-                // Specify the application and version to install on the compute nodes
-                pool.ApplicationPackageReferences = new List<ApplicationPackageReference>
-                {
-                    new ApplicationPackageReference {
-                        ApplicationId = packageName,
-                        Version = packageId }
-                };
-
-                await pool.CommitAsync();
-            }
-            catch (BatchException be)
-            {
-                // Swallow the specific error code PoolExists since that is expected if the pool already exists
-                if (be.RequestInformation?.BatchError != null && be.RequestInformation.BatchError.Code == BatchErrorCodeStrings.PoolExists)
-                {
-                    Console.WriteLine("The pool {0} already existed when we tried to create it", poolId);
-                    pool = batchClient.PoolOperations.GetPool(poolId);
-                    Console.WriteLine("TargetDedicatedComputeNodes: " + pool.TargetDedicatedComputeNodes);
-                    Console.WriteLine("TargetLowPriorityComputeNodes: " + pool.TargetLowPriorityComputeNodes);
-                }
-                else
-                {
-                    throw; // Any other exception is unexpected
-                }
-            }
-        }
-
-        private static async Task CreatePoolIfNotExistAsync(BatchClient batchClient, string poolId, List<ResourceFile> resourceFiles)
-        {
-            CloudPool pool = null;
-            try
-            {
-                Console.WriteLine("Creating pool [{0}]...", poolId);
-
-                // Create the unbound pool. Until we call CloudPool.Commit() or CommitAsync(), no pool is actually created in the
-                // Batch service. This CloudPool instance is therefore considered "unbound," and we can modify its properties.
-                Debug.Assert(Parallelism <= 3);
-                pool = batchClient.PoolOperations.CreatePool(
-                    poolId: poolId,
-                    targetLowPriorityComputeNodes: 0,
-                    targetDedicatedComputeNodes: Parallelism,
-                    virtualMachineSize: "small",
-                    cloudServiceConfiguration: new CloudServiceConfiguration(osFamily: "4"));   // Windows Server 2012 R2
-                await pool.CommitAsync();
-            }
-            catch (BatchException be)
-            {
-                // Swallow the specific error code PoolExists since that is expected if the pool already exists
-                if (be.RequestInformation?.BatchError != null && be.RequestInformation.BatchError.Code == BatchErrorCodeStrings.PoolExists)
-                {
-                    Console.WriteLine("The pool {0} already existed when we tried to create it", poolId);
-                    pool = batchClient.PoolOperations.GetPool(poolId);
-                    Console.WriteLine("TargetDedicatedComputeNodes: " + pool.TargetDedicatedComputeNodes);
-                    Console.WriteLine("TargetLowPriorityComputeNodes :" + pool.TargetLowPriorityComputeNodes);
-                }
-                else
-                {
-                    throw; // Any other exception is unexpected
-                }
-            }
-        }
-
-        /// <summary>
-        /// Creates a job in the specified pool.
-        /// </summary>
-        /// <param name="batchClient">A <see cref="BatchClient"/>.</param>
-        /// <param name="jobId">The id of the job to be created.</param>
-        /// <param name="poolId">The id of the <see cref="CloudPool"/> in which to create the job.</param>
-        /// <returns>A <see cref="System.Threading.Tasks.Task"/> object that represents the asynchronous operation.</returns>
-        private static async Task CreateJobAsync(BatchClient batchClient, string jobId, string poolId)
-        {
-            Console.WriteLine("Creating job [{0}]...", jobId);
-
-            CloudJob job = batchClient.JobOperations.CreateJob();
-            job.Id = jobId;
-            job.PoolInformation = new PoolInformation { PoolId = poolId };
-
-            await job.CommitAsync();
-        }
-
-        /// <summary>
-        /// Creates tasks to process each of the specified input files, and submits them to the
-        /// specified job for execution.
-        /// </summary>
-        /// <param name="batchClient">A <see cref="BatchClient"/>.</param>
-        /// <param name="jobId">The id of the job to which the tasks should be added.</param>
-        /// <param name="inputFiles">A collection of <see cref="ResourceFile"/> objects representing the input files to be
-        /// processed by the tasks executed on the compute nodes.</param>
-        /// <param name="outputContainerSasUrl">The shared access signature URL for the container within Azure Storage that
-        /// will receive the output files created by the tasks.</param>
-        /// <returns>A collection of the submitted tasks.</returns>
-        private static async Task<List<CloudTask>> AddTasksAsyncUseAppPackage(BatchClient batchClient, string jobId, string outputContainerSasUrl)
-        {
-            Console.WriteLine("Adding task to job [{0}]...", jobId);
-
-            // Create a collection to hold the tasks that we'll be adding to the job
-            List<CloudTask> tasks = new List<CloudTask>();
-
-            for (int i = 0; i < Parallelism; i++)
-            {
-                string taskCommandLine = String.Format("cmd /c %AZ_BATCH_APP_PACKAGE_{0}#{1}%\\{2}\\{3} \"{4}\"",
-                    ApplicationPackageName.ToUpper(), ApplicationPackageId, ApplicationPackageZipName, ApplicationPackageExeName, outputContainerSasUrl);
-                CloudTask task = new CloudTask(TaskId + i, taskCommandLine);
-
-                task.ApplicationPackageReferences = new List<ApplicationPackageReference>
-                {
-                    new ApplicationPackageReference
-                    {
-                        ApplicationId = ApplicationPackageName,
-                        Version = ApplicationPackageId
-                    }
-                };
-
-                tasks.Add(task);
-            }
-
-            // Add the tasks as a collection opposed to a separate AddTask call for each. Bulk task submission
-            // helps to ensure efficient underlying API calls to the Batch service.
-            await batchClient.JobOperations.AddTaskAsync(jobId, tasks);
-
-            return tasks;
-        }
-
-        private static async Task<List<CloudTask>> AddTasksAsyncUseContainer(BatchClient batchClient, string jobId, List<ResourceFile> resourceFiles, string outputContainerSasUrl)
-        {
-            Console.WriteLine("Adding task to job [{0}]...", jobId);
-
-            // Create a collection to hold the tasks that we'll be adding to the job
-            List<CloudTask> tasks = new List<CloudTask>();
-
-            for (int i = 0; i < Parallelism; i++)
-            {
-                string taskCommandLine = String.Format("cmd /c %AZ_BATCH_TASK_WORKING_DIR%\\{0} \"{1}\"", ExeName, outputContainerSasUrl);
-                CloudTask task = new CloudTask(TaskId + i, taskCommandLine);
-                task.ResourceFiles = new List<ResourceFile>(resourceFiles);
-
-                tasks.Add(task);
-            }
-
-            // Add the tasks as a collection opposed to a separate AddTask call for each. Bulk task submission
-            // helps to ensure efficient underlying API calls to the Batch service.
-            await batchClient.JobOperations.AddTaskAsync(jobId, tasks);
-
-            return tasks;
-        }
-
-        /// <summary>
-        /// Monitors the specified tasks for completion and returns a value indicating whether all tasks completed successfully
-        /// within the timeout period.
-        /// </summary>
-        /// <param name="batchClient">A <see cref="BatchClient"/>.</param>
-        /// <param name="jobId">The id of the job containing the tasks that should be monitored.</param>
-        /// <param name="timeout">The period of time to wait for the tasks to reach the completed state.</param>
-        /// <returns><c>true</c> if all tasks in the specified job completed with an exit code of 0 within the specified timeout period, otherwise <c>false</c>.</returns>
-        private static async Task<bool> MonitorTasks(BatchClient batchClient, string jobId, TimeSpan timeout)
-        {
-            bool allTasksSuccessful = true;
-            const string successMessage = "All tasks reached state Completed.";
-            const string failureMessage = "One or more tasks failed to reach the Completed state within the timeout period.";
-
-            // Obtain the collection of tasks currently managed by the job. Note that we use a detail level to
-            // specify that only the "id" property of each task should be populated. Using a detail level for
-            // all list operations helps to lower response time from the Batch service.
-            ODATADetailLevel detail = new ODATADetailLevel(selectClause: "id");
-            List<CloudTask> tasks = await batchClient.JobOperations.ListTasks(JobId, detail).ToListAsync();
-
-            Console.WriteLine("Awaiting task completion, timeout in {0}...", timeout.ToString());
-
-            // We use a TaskStateMonitor to monitor the state of our tasks. In this case, we will wait for all tasks to
-            // reach the Completed state.
-            TaskStateMonitor taskStateMonitor = batchClient.Utilities.CreateTaskStateMonitor();
-            try
-            {
-                await taskStateMonitor.WhenAll(tasks, TaskState.Completed, timeout);
-            }
-            catch (TimeoutException)
-            {
-                await batchClient.JobOperations.TerminateJobAsync(jobId, failureMessage);
-                Console.WriteLine(failureMessage);
-                return false;
-            }
-
-            await batchClient.JobOperations.TerminateJobAsync(jobId, successMessage);
-
-            // All tasks have reached the "Completed" state, however, this does not guarantee all tasks completed successfully.
-            // Here we further check each task's ExecutionInfo property to ensure that it did not encounter a scheduling error
-            // or return a non-zero exit code.
-
-            // Update the detail level to populate only the task id and executionInfo properties.
-            // We refresh the tasks below, and need only this information for each task.
-            detail.SelectClause = "id, executionInfo";
-
-            foreach (CloudTask task in tasks)
-            {
-                // Populate the task's properties with the latest info from the Batch service
-                await task.RefreshAsync(detail);
-
-                if (task.ExecutionInformation.Result == TaskExecutionResult.Failure)
-                {
-                    // A task with failure information set indicates there was a problem with the task. It is important to note that
-                    // the task's state can be "Completed," yet still have encountered a failure.
-
-                    allTasksSuccessful = false;
-
-                    Console.WriteLine("WARNING: Task [{0}] encountered a failure: {1}", task.Id, task.ExecutionInformation.FailureInformation.Message);
-                    if (task.ExecutionInformation.ExitCode != 0)
-                    {
-                        // A non-zero exit code may indicate that the application executed by the task encountered an error
-                        // during execution. As not every application returns non-zero on failure by default (e.g. robocopy),
-                        // your implementation of error checking may differ from this example.
-
-                        Console.WriteLine("WARNING: Task [{0}] returned a non-zero exit code - this may indicate task execution or completion failure.", task.Id);
-                    }
-                }
-            }
-
-            if (allTasksSuccessful)
-            {
-                Console.WriteLine("Success! All tasks completed successfully within the specified timeout period.");
-            }
-
-            return allTasksSuccessful;
-        }
-
-        /// <summary>
         /// Downloads all files from the specified blob storage container to the specified directory.
         /// </summary>
         /// <param name="blobClient">A <see cref="CloudBlobClient"/>.</param>
@@ -720,6 +396,209 @@
             {
                 Console.WriteLine(exception.ToString());
                 Console.WriteLine();
+            }
+        }
+
+        /// <summary>
+        /// Creates a <see cref="CloudPool"/> with the specified id and configures its StartTask with the
+        /// specified <see cref="ResourceFile"/> collection.
+        /// </summary>
+        /// <param name="batchClient">A <see cref="BatchClient"/>.</param>
+        /// <param name="poolId">The id of the <see cref="CloudPool"/> to create.</param>
+        /// <param name="resourceFiles">A collection of <see cref="ResourceFile"/> objects representing blobs within
+        /// a Storage account container. The StartTask will download these files from Storage prior to execution.</param>
+        /// <returns>A <see cref="System.Threading.Tasks.Task"/> object that represents the asynchronous operation.</returns>
+        private async Task CreatePoolIfNotExistAsync(BatchClient batchClient, List<ResourceFile> resourceFiles)
+        {
+            CloudPool pool = null;
+            try
+            {
+                Console.WriteLine("Creating pool [{0}]...", poolId);
+
+                pool = batchClient.PoolOperations.CreatePool(
+                    poolId: poolId,
+                    targetLowPriorityComputeNodes: 0,
+                    targetDedicatedComputeNodes: this.parallelism,
+                    virtualMachineSize: "small",
+                    cloudServiceConfiguration: new CloudServiceConfiguration(osFamily: "4"));   // Windows Server 2012 R2
+
+                pool.InterComputeNodeCommunicationEnabled = true;
+                pool.MaxTasksPerComputeNode = 1;
+
+                await pool.CommitAsync();
+            }
+            catch (BatchException be)
+            {
+                // Swallow the specific error code PoolExists since that is expected if the pool already exists
+                if (be.RequestInformation?.BatchError != null && be.RequestInformation.BatchError.Code == BatchErrorCodeStrings.PoolExists)
+                {
+                    Console.WriteLine("The pool {0} already existed when we tried to create it", poolId);
+                    pool = batchClient.PoolOperations.GetPool(poolId);
+                    Console.WriteLine("TargetDedicatedComputeNodes: " + pool.TargetDedicatedComputeNodes);
+                    Console.WriteLine("TargetLowPriorityComputeNodes :" + pool.TargetLowPriorityComputeNodes);
+                }
+                else
+                {
+                    throw; // Any other exception is unexpected
+                }
+            }
+        }
+
+        /// <summary>
+        /// Creates a job in the specified pool.
+        /// </summary>
+        /// <param name="batchClient">A <see cref="BatchClient"/>.</param>
+        /// <param name="jobId">The id of the job to be created.</param>
+        /// <param name="poolId">The id of the <see cref="CloudPool"/> in which to create the job.</param>
+        /// <returns>A <see cref="System.Threading.Tasks.Task"/> object that represents the asynchronous operation.</returns>
+        private async Task CreateJobAsync(BatchClient batchClient)
+        {
+            Console.WriteLine("Creating job [{0}]...", this.jobId);
+
+            CloudJob job = batchClient.JobOperations.CreateJob();
+            job.Id = this.jobId;
+            job.PoolInformation = new PoolInformation { PoolId = this.poolId };
+
+            await job.CommitAsync();
+        }
+
+        /// <summary>
+        /// Creates tasks to process each of the specified input files, and submits them to the
+        /// specified job for execution.
+        /// </summary>
+        /// <param name="batchClient">A <see cref="BatchClient"/>.</param>
+        /// <param name="jobId">The id of the job to which the tasks should be added.</param>
+        /// <param name="applicationFiles">A collection of <see cref="ResourceFile"/> objects representing the program 
+        /// (with dependencies and serialization data) to be executed on the compute nodes.</param>
+        /// <param name="outputContainerSasUrl">The shared access signature URL for the container within Azure Storage that
+        /// will receive the output files created by the tasks.</param>
+        /// <returns>A collection of the submitted tasks.</returns>
+        private async Task<List<CloudTask>> AddTasksAsync(BatchClient batchClient, List<ResourceFile> applicationFiles, string outputContainerSasUrl)
+        {
+            Console.WriteLine("Adding task to job [{0}]...", jobId);
+
+            // Create a collection to hold the tasks that we'll be adding to the job
+            List<CloudTask> tasks = new List<CloudTask>();
+
+            for (int i = 0; i < this.parallelism; i++)
+            {
+                string taskCommandLine = $"cmd /c %AZ_BATCH_TASK_WORKING_DIR%\\{this.exeName} \"{outputContainerSasUrl}\"";
+                CloudTask task = new CloudTask(i.ToString(), taskCommandLine);
+                task.ResourceFiles = new List<ResourceFile>(applicationFiles);
+
+                tasks.Add(task);
+            }
+
+            // Add the tasks as a collection opposed to a separate AddTask call for each. Bulk task submission
+            // helps to ensure efficient underlying API calls to the Batch service.
+            await batchClient.JobOperations.AddTaskAsync(jobId, tasks);
+
+            return tasks;
+        }
+
+        /// <summary>
+        /// Monitors the specified tasks for completion and returns a value indicating whether all tasks completed successfully
+        /// within the timeout period.
+        /// </summary>
+        /// <param name="batchClient">A <see cref="BatchClient"/>.</param>
+        /// <param name="jobId">The id of the job containing the tasks that should be monitored.</param>
+        /// <param name="timeout">The period of time to wait for the tasks to reach the completed state.</param>
+        /// <returns><c>true</c> if all tasks in the specified job completed with an exit code of 0 within the specified timeout period, otherwise <c>false</c>.</returns>
+        private static async Task<bool> MonitorTasks(BatchClient batchClient, string jobId, TimeSpan timeout)
+        {
+            bool allTasksSuccessful = true;
+            const string successMessage = "All tasks reached state Completed.";
+            const string failureMessage = "One or more tasks failed to reach the Completed state within the timeout period.";
+
+            // Obtain the collection of tasks currently managed by the job. Note that we use a detail level to
+            // specify that only the "id" property of each task should be populated. Using a detail level for
+            // all list operations helps to lower response time from the Batch service.
+            ODATADetailLevel detail = new ODATADetailLevel(selectClause: "id");
+            List<CloudTask> tasks = await batchClient.JobOperations.ListTasks(jobId, detail).ToListAsync();
+
+            Console.WriteLine("Awaiting task completion, timeout in {0}...", timeout.ToString());
+
+            // We use a TaskStateMonitor to monitor the state of our tasks. In this case, we will wait for all tasks to
+            // reach the Completed state.
+            TaskStateMonitor taskStateMonitor = batchClient.Utilities.CreateTaskStateMonitor();
+            try
+            {
+                await taskStateMonitor.WhenAll(tasks, TaskState.Completed, timeout);
+            }
+            catch (TimeoutException)
+            {
+                Console.WriteLine(failureMessage);
+                await batchClient.JobOperations.TerminateJobAsync(jobId, failureMessage);
+                return false;
+            }
+
+            await batchClient.JobOperations.TerminateJobAsync(jobId, successMessage);
+
+            // All tasks have reached the "Completed" state, however, this does not guarantee all tasks completed successfully.
+            // Here we further check each task's ExecutionInfo property to ensure that it did not encounter a scheduling error
+            // or return a non-zero exit code.
+
+            // Update the detail level to populate only the task id and executionInfo properties.
+            // We refresh the tasks below, and need only this information for each task.
+            detail.SelectClause = "id, executionInfo";
+
+            foreach (CloudTask task in tasks)
+            {
+                // Populate the task's properties with the latest info from the Batch service
+                await task.RefreshAsync(detail);
+
+                if (task.ExecutionInformation.Result == TaskExecutionResult.Failure)
+                {
+                    // A task with failure information set indicates there was a problem with the task. It is important to note that
+                    // the task's state can be "Completed," yet still have encountered a failure.
+
+                    allTasksSuccessful = false;
+
+                    Console.WriteLine("WARNING: Task [{0}] encountered a failure: {1}", task.Id, task.ExecutionInformation.FailureInformation.Message);
+                    if (task.ExecutionInformation.ExitCode != 0)
+                    {
+                        // A non-zero exit code may indicate that the application executed by the task encountered an error
+                        // during execution. As not every application returns non-zero on failure by default (e.g. robocopy),
+                        // your implementation of error checking may differ from this example.
+
+                        Console.WriteLine("WARNING: Task [{0}] returned a non-zero exit code - this may indicate task execution or completion failure.", task.Id);
+                    }
+                }
+            }
+
+            if (allTasksSuccessful)
+            {
+                Console.WriteLine("Success! All tasks completed successfully within the specified timeout period.");
+            }
+
+            return allTasksSuccessful;
+        }
+
+        private void DeletePool()
+        {
+            BatchSharedKeyCredentials cred = new BatchSharedKeyCredentials(this.batchAccountUrl, this.batchAccountName, this.batchAccountKey);
+            using (BatchClient batchClient = BatchClient.Open(cred))
+            {
+                batchClient.PoolOperations.DeletePool(this.poolId);
+            }
+        }
+
+        private void DeleteJob()
+        {
+            BatchSharedKeyCredentials cred = new BatchSharedKeyCredentials(this.batchAccountUrl, this.batchAccountName, this.batchAccountKey);
+            using (BatchClient batchClient = BatchClient.Open(cred))
+            {
+                batchClient.JobOperations.DeleteJob(this.jobId);
+            }
+        }
+
+        private void DeletePoolAndJob()
+        {
+            BatchSharedKeyCredentials cred = new BatchSharedKeyCredentials(this.batchAccountUrl, this.batchAccountName, this.batchAccountKey);
+            using (BatchClient batchClient = BatchClient.Open(cred))
+            {
+                batchClient.JobOperations.DeleteJob(this.jobId);
+                batchClient.PoolOperations.DeletePool(this.poolId);
             }
         }
     }

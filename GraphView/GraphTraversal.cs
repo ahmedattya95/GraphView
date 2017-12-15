@@ -126,6 +126,11 @@ namespace GraphView
 
             public bool MoveNext()
             {
+                if (this.Command.OnlyCompile)
+                {
+                    return false;
+                }
+
                 if (this.CurrentOperator == null)
                 {
                     return false;
@@ -283,6 +288,42 @@ namespace GraphView
             {
                 case OutputFormat.GraphSON:
                     results.Add(GraphSONProjector.ToGraphSON(rawRecordResults, this.Command));
+                    break;
+                default:
+                    foreach (var record in rawRecordResults)
+                    {
+                        FieldObject field = record[0];
+                        results.Add(field.ToString());
+                    }
+                    break;
+            }
+
+            return results;
+        }
+
+        public static List<string> ExecuteQueryByDeserilization()
+        {
+            GraphViewCommand command;
+            GraphViewExecutionOperator op = GraphViewSerializer.Deserialize(out command);
+            List<RawRecord> rawRecordResults = new List<RawRecord>();
+            RawRecord outputRec = null;
+
+            while ((outputRec = op.Next()) != null)
+            {
+                rawRecordResults.Add(outputRec);
+            }
+
+            if (command.InLazyMode)
+            {
+                command.VertexCache.UploadDelta();
+            }
+
+            List<string> results = new List<string>();
+
+            switch (command.OutputFormat)
+            {
+                case OutputFormat.GraphSON:
+                    results.Add(GraphSONProjector.ToGraphSON(rawRecordResults, command));
                     break;
                 default:
                     foreach (var record in rawRecordResults)

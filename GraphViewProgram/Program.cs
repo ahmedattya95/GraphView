@@ -9,9 +9,6 @@ namespace GraphViewProgram
 {
     public class Program
     {
-        private const bool TestUseReverseEdge = true;
-        private const string TestPartitionByKey = "name";
-        private const int TestSpilledEdgeThresholdViagraphAPI = 1;
 
         public static void Main(string[] args)
         {
@@ -20,24 +17,19 @@ namespace GraphViewProgram
                 throw new GraphView.GraphViewException("args in Main() Error");
             }
 
-            GraphView.GraphViewConnection connection = GetConnection();
+            List<string> result = GraphView.GraphTraversal.ExecuteQueryByDeserilization();
 
-            using (GraphView.GraphViewCommand command = new GraphView.GraphViewCommand(connection))
+            foreach (var r in result)
             {
-                var traversal = command.g().V().Out();
-                var result = traversal.Next();
-                foreach (var r in result)
-                {
-                    Console.WriteLine(r);
-                }
-
-                SaveOutput(result, args[0]);
+                Console.WriteLine(r);
             }
+
+            SaveOutput(result, args[0]);
         }
 
         private static void SaveOutput(List<string> result, string outputContainerSas)
         {
-            string outputFile = "output" + Environment.GetEnvironmentVariable("AZ_BATCH_TASK_ID");
+            string outputFile = $"output-{Environment.GetEnvironmentVariable("AZ_BATCH_JOB_ID")}-{Environment.GetEnvironmentVariable("AZ_BATCH_TASK_ID")}";
             using (System.IO.StreamWriter file = new System.IO.StreamWriter(outputFile))
             {
 
@@ -94,51 +86,36 @@ namespace GraphViewProgram
             }
         }
 
-        private static void LoadModernGraphData(GraphView.GraphViewConnection connection)
-        {
-            GraphView.GraphViewCommand graphCommand = new GraphView.GraphViewCommand(connection);
 
-            graphCommand.g().AddV("person").Property("id", "dummy").Property("name", "marko").Property("age", 29).Next();
-            graphCommand.g().AddV("person").Property("id", "特殊符号").Property("name", "vadas").Property("age", 27).Next();
-            graphCommand.g().AddV("software").Property("id", "这是一个中文ID").Property("name", "lop").Property("lang", "java").Next();
-            graphCommand.g().AddV("person").Property("id", "引号").Property("name", "josh").Property("age", 32).Next();
-            graphCommand.g().AddV("software").Property("id", "中文English").Property("name", "ripple").Property("lang", "java").Next();
-            graphCommand.g().AddV("person").Property("name", "peter").Property("age", 35).Next();  // Auto generate document id
-            graphCommand.g().V().Has("name", "marko").AddE("knows").Property("weight", 0.5d).To(graphCommand.g().V().Has("name", "vadas")).Next();
-            graphCommand.g().V().Has("name", "marko").AddE("knows").Property("weight", 1.0d).To(graphCommand.g().V().Has("name", "josh")).Next();
-            graphCommand.g().V().Has("name", "marko").AddE("created").Property("weight", 0.4d).To(graphCommand.g().V().Has("name", "lop")).Next();
-            graphCommand.g().V().Has("name", "josh").AddE("created").Property("weight", 1.0d).To(graphCommand.g().V().Has("name", "ripple")).Next();
-            graphCommand.g().V().Has("name", "josh").AddE("created").Property("weight", 0.4d).To(graphCommand.g().V().Has("name", "lop")).Next();
-            graphCommand.g().V().Has("name", "peter").AddE("created").Property("weight", 0.2d).To(graphCommand.g().V().Has("name", "lop")).Next();
-
-            graphCommand.Dispose();
-        }
-
-        private static GraphView.GraphViewConnection ClearModernGraphData()
+        private static void LoadModernGraphData()
         {
             string endpoint = ConfigurationManager.AppSettings["DocDBEndPoint"];
             string authKey = ConfigurationManager.AppSettings["DocDBKey"];
             string databaseId = ConfigurationManager.AppSettings["DocDBDatabase"];
             string collectionId = ConfigurationManager.AppSettings["DocDBCollection"];
+            bool TestUseReverseEdge = true;
+            string TestPartitionByKey = "name";
+            int TestSpilledEdgeThresholdViagraphAPI = 1;
 
-            return GraphView.GraphViewConnection.ResetGraphAPICollection(endpoint, authKey, databaseId, collectionId,
+            GraphView.GraphViewConnection connection =  GraphView.GraphViewConnection.ResetGraphAPICollection(endpoint, authKey, databaseId, collectionId,
                 TestUseReverseEdge, TestSpilledEdgeThresholdViagraphAPI, TestPartitionByKey);
-        }
 
-        private static GraphView.GraphViewConnection GetConnection()
-        {
-            string endpoint = ConfigurationManager.AppSettings["DocDBEndPoint"];
-            string authKey = ConfigurationManager.AppSettings["DocDBKey"];
-            string databaseId = ConfigurationManager.AppSettings["DocDBDatabase"];
-            string collectionId = ConfigurationManager.AppSettings["DocDBCollection"];
+            using (GraphView.GraphViewCommand graphCommand = new GraphView.GraphViewCommand(connection))
+            {
+                graphCommand.g().AddV("person").Property("id", "dummy").Property("name", "marko").Property("age", 29).Next();
+                graphCommand.g().AddV("person").Property("id", "特殊符号").Property("name", "vadas").Property("age", 27).Next();
+                graphCommand.g().AddV("software").Property("id", "这是一个中文ID").Property("name", "lop").Property("lang", "java").Next();
+                graphCommand.g().AddV("person").Property("id", "引号").Property("name", "josh").Property("age", 32).Next();
+                graphCommand.g().AddV("software").Property("id", "中文English").Property("name", "ripple").Property("lang", "java").Next();
+                graphCommand.g().AddV("person").Property("name", "peter").Property("age", 35).Next();  // Auto generate document id
+                graphCommand.g().V().Has("name", "marko").AddE("knows").Property("weight", 0.5d).To(graphCommand.g().V().Has("name", "vadas")).Next();
+                graphCommand.g().V().Has("name", "marko").AddE("knows").Property("weight", 1.0d).To(graphCommand.g().V().Has("name", "josh")).Next();
+                graphCommand.g().V().Has("name", "marko").AddE("created").Property("weight", 0.4d).To(graphCommand.g().V().Has("name", "lop")).Next();
+                graphCommand.g().V().Has("name", "josh").AddE("created").Property("weight", 1.0d).To(graphCommand.g().V().Has("name", "ripple")).Next();
+                graphCommand.g().V().Has("name", "josh").AddE("created").Property("weight", 0.4d).To(graphCommand.g().V().Has("name", "lop")).Next();
+                graphCommand.g().V().Has("name", "peter").AddE("created").Property("weight", 0.2d).To(graphCommand.g().V().Has("name", "lop")).Next();
 
-            return new GraphView.GraphViewConnection(
-                endpoint, authKey, databaseId, collectionId,
-                GraphView.GraphType.GraphAPIOnly,
-                edgeSpillThreshold: TestSpilledEdgeThresholdViagraphAPI,
-                useReverseEdges: TestUseReverseEdge,
-                partitionByKeyIfViaGraphAPI: TestPartitionByKey
-            );
+            }
         }
     }
 }
