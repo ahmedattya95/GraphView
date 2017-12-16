@@ -188,8 +188,17 @@ namespace GraphView.GraphViewDBPortal
             // construct where clause string.
             var docDbStringVisitor = new ToDocDbStringVisitor();
             docDbStringVisitor.Invoke(whereClauseCopy);
-            string whereClauseString = $"WHERE ({docDbStringVisitor.GetString()})";
+            string rawWhereClauseString = docDbStringVisitor.GetString();
 
+            if (SerializationData.partitionPlan != null && JsonQueryConfig.InFirstFetchData)
+            {
+                JsonQueryConfig.InFirstFetchData = false;
+                return $"{selectClauseString}\n" +
+                       $"{fromClauseString} {joinClauseString}\n" +
+                       $"WHERE ({SerializationData.partitionPlan.AppendToWhereClause(this.NodeAlias ?? this.EdgeAlias, rawWhereClauseString)})";
+            }
+
+            string whereClauseString = $"WHERE ({rawWhereClauseString})";
             return $"{selectClauseString}\n" +
                    $"{fromClauseString} {joinClauseString}\n" +
                    $"{whereClauseString}";
@@ -304,9 +313,9 @@ namespace GraphView.GraphViewDBPortal
         [OnSerializing]
         private void ConstructQueryString(StreamingContext context)
         {
-            JsonQueryConfig.useSquareBracket = true;
+            JsonQueryConfig.UseSquareBracket = true;
             this.dummyQueryString = "SELECT *\nFROM T\n" + $"WHERE {this.RawWhereClause}";
-            JsonQueryConfig.useSquareBracket = false;
+            JsonQueryConfig.UseSquareBracket = false;
         }
 
         [OnDeserialized]
@@ -319,6 +328,13 @@ namespace GraphView.GraphViewDBPortal
 
     internal static class JsonQueryConfig
     {
-        public static bool useSquareBracket = false;
+        public static bool UseSquareBracket { get; set; } = false;
+        public static bool InFirstFetchData { get; set; } = true;
+
+        public static void Reset()
+        {
+            UseSquareBracket = false;
+            InFirstFetchData = true;
+        }
     }
 }

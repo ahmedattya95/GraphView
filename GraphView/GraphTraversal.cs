@@ -15,6 +15,7 @@ using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using GraphView.GraphViewDBPortal;
 using Microsoft.CSharp;
 
 namespace GraphView
@@ -126,11 +127,6 @@ namespace GraphView
 
             public bool MoveNext()
             {
-                if (this.Command.OnlyCompile)
-                {
-                    return false;
-                }
-
                 if (this.CurrentOperator == null)
                 {
                     return false;
@@ -301,10 +297,22 @@ namespace GraphView
             return results;
         }
 
+        public void CompileQuery()
+        {
+            this.Reset();
+            WSqlScript sqlScript = GetEndOp().ToSqlScript();
+            this.SqlScript = sqlScript.ToString();
+
+            GraphViewExecutionOperator op = sqlScript.Batches[0].Compile(null, this.Command);
+        }
+
         public static List<string> ExecuteQueryByDeserilization()
         {
             GraphViewCommand command;
             GraphViewExecutionOperator op = GraphViewSerializer.Deserialize(out command);
+            GraphViewSerializer.DeserializePatitionPlan();
+            JsonQueryConfig.Reset();
+
             List<RawRecord> rawRecordResults = new List<RawRecord>();
             RawRecord outputRec = null;
 

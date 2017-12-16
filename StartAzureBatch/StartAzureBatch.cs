@@ -1,4 +1,6 @@
-﻿namespace StartAzureBatch
+﻿using System.Linq;
+
+namespace StartAzureBatch
 {
     using System;
     using System.Collections.Generic;
@@ -14,8 +16,6 @@
 
     public class StartAzureBatch
     {
-        private readonly string queryString;
-
         // Batch account credentials
         private readonly string batchAccountName;
         private readonly string batchAccountKey;
@@ -46,17 +46,13 @@
         // local path that stores downloaded output
         private readonly string outputPath;
 
-        private readonly string partitionPlanFileName;
-
         public StartAzureBatch()
         {
-            queryString = "g.V()";
-
             batchAccountName = "";
             batchAccountKey = "";
             batchAccountUrl = "";
 
-            storageConnectionString = "";
+            storageConnectionString = $"DefaultEndpointsProtocol=https;AccountName={""};AccountKey={""}";
 
             docDBEndPoint = "";
             docDBKey = "";
@@ -71,12 +67,10 @@
 
             parallelism = 3;
 
-            denpendencyPath = "blablabla\\GraphView\\GraphViewProgram\\bin\\Debug\\";
+            denpendencyPath = "...\\GraphView\\GraphViewProgram\\bin\\Debug\\";
             exeName = "Program.exe";
 
-            outputPath = "C:\\Users\\user-name\\Desktop";
-
-            partitionPlanFileName = $"partitionPlan{this.jobId}.xml";
+            outputPath = "...\\Desktop";
         }
 
         public static void Main(string[] args)
@@ -107,7 +101,7 @@
         {
             StartAzureBatch client = new StartAzureBatch();
 
-            Console.WriteLine("Query {0} start: {1}\n", client.queryString, DateTime.Now);
+            Console.WriteLine("Query start: {0}\n", DateTime.Now);
             Stopwatch timer = new Stopwatch();
             timer.Start();
 
@@ -151,7 +145,7 @@
                 GraphViewSerializer.ContainerFile,
                 GraphViewSerializer.OperatorsFile,
                 GraphViewSerializer.SideEffectFile,
-                //client.partitionPlanFileName
+                GraphViewSerializer.PartitionPlanFile
             };
 
             // Upload the application and its dependencies to Azure Storage.
@@ -183,7 +177,7 @@
                 await MonitorTasks(batchClient, client.jobId, TimeSpan.FromMinutes(15));
 
                 // Download the task output files from the output Storage container to a local directory
-                await DownloadBlobsFromContainerAsync(blobClient, outputContainerName, client.outputPath);
+                await client.DownloadAndAggregateOutputAsync(blobClient, outputContainerName);
 
                 // Clean up Storage resources
                 await DeleteContainerAsync(blobClient, outputContainerName);
@@ -194,7 +188,8 @@
                 Console.WriteLine("Sample end: {0}", DateTime.Now);
                 Console.WriteLine("Elapsed time: {0}", timer.Elapsed);
 
-                client.PrintTaskOutput(batchClient);
+                // use when debuging. print stdout and stderr
+                // client.PrintTaskOutput(batchClient);
 
                 // Clean up Batch resources (if the user so chooses)
                 Console.WriteLine();
@@ -213,13 +208,46 @@
                 this.docDBEndPoint, this.docDBKey, this.docDBDatabaseId, this.docDBCollectionId,
                 GraphType.GraphAPIOnly, this.useReverseEdge, this.spilledEdgeThresholdViagraphAPI, this.partitionByKey);
             GraphViewCommand command = new GraphViewCommand(connection);
-            command.CommandText = this.queryString;
-            command.CompileQuery();
+
+            GraphTraversal traversal = command.g().V();
+
+            traversal.CompileQuery();
         }
 
         private void MakePartitionPlan()
         {
-            
+            List<PartitionPlan> plans = new List<PartitionPlan>();
+            // temporary solution, very simple. just can run very simple query like g.V().out()
+
+            if (this.parallelism == 1)
+            {
+                plans.Add(new PartitionPlan("name", PartitionMethod.CompareFirstChar,
+                    new Tuple<string, string, PartitionBetweenType>("a", "z", PartitionBetweenType.IncludeBoth)));
+            }
+
+            string left = "a";
+            string right;
+            Debug.Assert(this.parallelism <= 26);
+            int span = 26 / this.parallelism;
+            for (int i = 0; i < this.parallelism; i++)
+            {
+                PartitionPlan plan;
+                if (i == this.parallelism - 1)
+                {
+                    plan = new PartitionPlan("name", PartitionMethod.CompareFirstChar,
+                        new Tuple<string, string, PartitionBetweenType>(left, "z", PartitionBetweenType.IncludeBoth));
+                    plans.Add(plan);
+                    break;
+                }
+
+                right = "" + (char)(left.First() + span);
+                plan = new PartitionPlan("name", PartitionMethod.CompareFirstChar, 
+                    new Tuple<string, string, PartitionBetweenType>(left, right, PartitionBetweenType.IncludeLeft));
+                plans.Add(plan);
+                left = right;
+            }
+
+            GraphViewSerializer.SerializePatitionPlan(plans);
         }
 
         private void PrintTaskOutput(BatchClient batchClient)
@@ -494,6 +522,39 @@
             await batchClient.JobOperations.AddTaskAsync(jobId, tasks);
 
             return tasks;
+        }
+
+        private async Task DownloadAndAggregateOutputAsync(CloudBlobClient blobClient, string containerName)
+        {
+            Console.WriteLine("Downloading all files from container [{0}]...", containerName);
+
+            // Retrieve a reference to a previously created container
+            CloudBlobContainer container = blobClient.GetContainerReference(containerName);
+
+            string outputFile = Path.Combine(this.outputPath, $"output-{this.jobId}");
+            // if file exists, clear it; otherwise create a empty file.
+            File.WriteAllText(outputFile, String.Empty);
+            using (StreamWriter file = new StreamWriter(outputFile))
+            {
+                // Get a flat listing of all the block blobs in the specified container
+                foreach (IListBlobItem item in container.ListBlobs(prefix: null, useFlatBlobListing: true))
+                {
+                    // Retrieve reference to the current blob
+                    CloudBlob blob = (CloudBlob)item;
+
+                    // Save blob contents to a file in the specified folder
+                    string localOutputFile = Path.Combine(this.outputPath, blob.Name);
+                    await blob.DownloadToFileAsync(localOutputFile, FileMode.Create);
+
+                    // write result to aggregate file
+                    string text = File.ReadAllText(localOutputFile);
+                    file.Write(text);
+                }
+            }
+
+            Console.WriteLine("All files downloaded to {0}", this.outputPath);
+            Console.WriteLine("Aggregation File create in {0}. The content is as follows:", outputFile);
+            Console.Write(File.ReadAllText(outputFile));
         }
 
         /// <summary>

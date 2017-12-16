@@ -32,18 +32,16 @@ namespace GraphViewProgram
             string outputFile = $"output-{Environment.GetEnvironmentVariable("AZ_BATCH_JOB_ID")}-{Environment.GetEnvironmentVariable("AZ_BATCH_TASK_ID")}";
             using (System.IO.StreamWriter file = new System.IO.StreamWriter(outputFile))
             {
-
+                file.WriteLine("------------------------------------------");
                 foreach (var row in result)
                 {
                     file.WriteLine(row);
                 }
 
                 // Write out some task information using some of the node's environment variables
-                file.WriteLine("------------------------------");
-                file.WriteLine("Node: " + Environment.GetEnvironmentVariable("AZ_BATCH_NODE_ID"));
-                file.WriteLine("Task: " + Environment.GetEnvironmentVariable("AZ_BATCH_TASK_ID"));
-                file.WriteLine("Job:  " + Environment.GetEnvironmentVariable("AZ_BATCH_JOB_ID"));
-                file.WriteLine("Pool: " + Environment.GetEnvironmentVariable("AZ_BATCH_POOL_ID"));
+                file.WriteLine($"Task: {Environment.GetEnvironmentVariable("AZ_BATCH_TASK_ID")}" +
+                               $", Node: {Environment.GetEnvironmentVariable("AZ_BATCH_NODE_ID")}");
+                file.WriteLine("------------------------------------------");
             }
 
             // Upload the output file to blob container in Azure Storage

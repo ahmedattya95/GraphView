@@ -69,7 +69,7 @@ namespace GraphView
                 {
                     sb.Append('.');
                 }
-                if (JsonQueryConfig.useSquareBracket)
+                if (JsonQueryConfig.UseSquareBracket)
                 {
                     sb.Append("[" + Identifiers[i].Value + "]");
                 }
